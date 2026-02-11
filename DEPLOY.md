@@ -7,7 +7,7 @@ This repo is set up so the **Node API runs on Render** and the **Vite/React fron
 ## 1. Backend on Render
 
 1. Go to [Render](https://render.com) and sign in. **New → Web Service**.
-2. Connect your GitHub repo: `arshdeepsinghmalhi/studentTestPortal` (or use the repo you pushed).
+2. Connect your GitHub repo: `arshdeepsinghmalhi/studentSUNSTONE PRIME` (or use the repo you pushed).
 3. Configure:
    - **Name:** `student-test-portal-api` (or any name).
    - **Region:** your choice (e.g. Oregon).

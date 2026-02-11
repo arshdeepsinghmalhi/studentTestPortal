@@ -59,7 +59,7 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col items-center justify-center p-4 font-sans">
        <header className="absolute top-0 left-0 p-6">
-          <h1 className="text-2xl font-bold text-blue-600">TestPortal</h1>
+          <h1 className="text-2xl font-bold text-blue-600">SUNSTONE PRIME</h1>
        </header>
        <main className="w-full max-w-2xl">
          {renderContent()}
