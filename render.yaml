@@ -1,0 +1,20 @@
+# Render Blueprint: backend API only (same repo; frontend deploys to Vercel)
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: student-test-portal-api
+    runtime: node
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GOOGLE_SHEETS_ID
+        sync: false
+      - key: GOOGLE_SHEETS_RANGE
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+        sync: false

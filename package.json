@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "server": "nodemon server.mjs"
+    "server": "nodemon server.mjs",
+    "start": "node server.mjs"
   },
   "dependencies": {
     "dotenv": "^17.2.4",

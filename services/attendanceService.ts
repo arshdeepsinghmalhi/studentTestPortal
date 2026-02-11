@@ -1,12 +1,8 @@
 
 import { VerificationResult } from '../types';
 
-// Local backend endpoint that:
-// 1. Looks up the student row in Google Sheets using the email.
-// 2. Reads amcatLink, lectureTime, lectureDate from that row.
-// 3. Calls the analytics eligibility API with those values.
-// 4. Returns a normalized response for the frontend.
-const API_URL = '/api/check-eligibility';
+// Backend API: use VITE_API_URL in production (e.g. Render), else /api for local dev (Vite proxy).
+const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '') + '/api/check-eligibility';
 
 /**
  * Calls the backend API to check if a student is eligible for the test.
