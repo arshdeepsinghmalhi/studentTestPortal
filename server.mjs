@@ -39,16 +39,29 @@ app.use((req, res, next) => {
   next();
 });
 
-// Google Sheets auth helper using the service account.
-// IMPORTANT:
-// - Save your service account JSON (the one you pasted) to a file, e.g. "service-account.json".
-// - Set the environment variable GOOGLE_APPLICATION_CREDENTIALS to that file path, e.g.:
-//     export GOOGLE_APPLICATION_CREDENTIALS=./service-account.json
-// - Set GOOGLE_SHEETS_ID to your spreadsheet ID (e.g. 1AInMgyVaj9XGexA8-z-JDFcHjPpsxs3iCZ6a0IrVVlM).
-// - Optionally set GOOGLE_SHEETS_RANGE; default is "userDetails!A:Z" (userDetails sheet).
-const auth = new google.auth.GoogleAuth({
-  scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-});
+// Google Sheets auth: use service account from env (private key + client email) or from file.
+const SHEETS_SCOPE = ['https://www.googleapis.com/auth/spreadsheets.readonly'];
+
+function getGoogleAuth() {
+  const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+  const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL;
+  if (privateKey && clientEmail) {
+    // Credentials from .env: private key may have literal \n in value → normalize to real newlines
+    return new google.auth.GoogleAuth({
+      credentials: {
+        client_email: clientEmail,
+        private_key: privateKey.replace(/\\n/g, '\n'),
+      },
+      scopes: SHEETS_SCOPE,
+    });
+  }
+  // Fallback: use service account file path (GOOGLE_APPLICATION_CREDENTIALS)
+  return new google.auth.GoogleAuth({
+    scopes: SHEETS_SCOPE,
+  });
+}
+
+const auth = getGoogleAuth();
 
 const normalize = (value) => (value ?? '').toString().trim().toLowerCase();
 
