@@ -1,22 +1,23 @@
 
 import { VerificationResult } from '../types';
 
-// Backend API: use VITE_API_URL in production (e.g. Render), else /api for local dev (Vite proxy).
-const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '') + '/api/check-eligibility';
+// Backend API: VITE_API_URL in prod, or fallback to Render when on Vercel, else /api for local dev (Vite proxy).
+const RENDER_API_BASE = 'https://student-test-portal-api.onrender.com';
+const base =
+  import.meta.env.VITE_API_URL ||
+  (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')
+    ? RENDER_API_BASE
+    : '');
+const API_URL = base.replace(/\/$/, '') + '/api/verify';
 
 /**
- * Calls the backend API to check if a student is eligible for the test.
- *
- * The backend server is responsible for:
- * 1. Using the email to look up the student's row in the Google Sheet.
- * 2. Finding their specific lectureDate, lectureTime, and amcatLink.
- * 3. Calling the analytics eligibility API with those values.
- * 4. Returning a success response containing the unique amcatLink/url.
+ * Verifies the student using sheet data only. Backend reads the sheet, checks the Present column:
+ * if Present = TRUE and amcat link exists → redirect; else → show "Contact your Campus Manager".
  * @param email The student's email address.
  * @returns A promise that resolves with the verification result.
  */
 export const verifyAttendance = async (email: string): Promise<VerificationResult> => {
-  console.log(`Checking eligibility for: ${email}`);
+  console.log(`Verifying (sheet only) for: ${email}`);
 
   // The frontend only sends the email. All Google Sheets lookup +
   // external API logic is handled safely on the backend.

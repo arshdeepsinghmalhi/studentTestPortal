@@ -1,6 +1,5 @@
 import express from 'express';
 import { google } from 'googleapis';
-import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 
 // Load environment variables for the backend.
@@ -17,13 +16,7 @@ function crashAndExit(err) {
 process.on('uncaughtException', crashAndExit);
 process.on('unhandledRejection', crashAndExit);
 
-// Simple Express backend that:
-// 1. Uses the student's email to find their row in a Google Sheet.
-// 2. Reads amcatLink, lectureTime, lectureDate from that row.
-// 3. Calls the analytics eligibility API with those values.
-// 4. Returns a normalized response to the frontend.
-
-const ANALYTICS_API_URL = 'https://analytics.sunstone.in/check-eligibility';
+// Backend: reads sheet only. Lookup by email, check Present column → if TRUE redirect to amcat link, else "Contact your Campus Manager". No /api/check-eligibility, no external API.
 
 const app = express();
 app.use(express.json());
@@ -65,32 +58,10 @@ const auth = getGoogleAuth();
 
 const normalize = (value) => (value ?? '').toString().trim().toLowerCase();
 
-/**
- * Converts a date string from the sheet (e.g. "2/9/2026", "02/09/2026") to SQL DATE format YYYY-MM-DD
- * so the analytics API / MySQL accepts it (avoids "Incorrect DATE value" error).
- */
-function formatDateForApi(value) {
-  const raw = (value ?? '').toString().trim();
-  if (!raw) return raw;
-  // Already YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  // M/D/YYYY or MM/DD/YYYY
-  const match = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (match) {
-    const [, month, day, year] = match;
-    const m = month.padStart(2, '0');
-    const d = day.padStart(2, '0');
-    return `${year}-${m}-${d}`;
-  }
-  // Fallback: try Date parse and format
-  const d = new Date(raw);
-  if (!Number.isNaN(d.getTime())) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  }
-  return raw;
+/** Treat sheet value as boolean (TRUE, true, YES, 1, etc.). */
+function isPresentValue(value) {
+  const v = normalize(value);
+  return v === 'true' || v === 'yes' || v === '1' || v === 'x' || v === 'y';
 }
 
 async function findStudentByEmail(email) {
@@ -119,16 +90,16 @@ async function findStudentByEmail(email) {
   const headerIndex = (names) =>
     headerRow.findIndex((h) => names.includes(normalize(h)));
 
-  // Sheet headers: Unique ID, Email, ..., SHLE Links, Lecture Date, Lecture Start Time
-  // normalize() lowercases, so match with lowercase names
+  // Sheet headers: ..., Email, ..., SHLE Links, ..., is_present / Present (normalize() lowercases)
   const emailIdx = headerIndex(['email']);
   const amcatIdx = headerIndex(['shle links']);
   const timeIdx = headerIndex(['lecture start time']);
   const dateIdx = headerIndex(['lecture date']);
+  const isPresentIdx = headerIndex(['is_present', 'is present', 'is_presnet', 'present']);
 
-  if (emailIdx === -1 || amcatIdx === -1 || timeIdx === -1 || dateIdx === -1) {
+  if (emailIdx === -1 || amcatIdx === -1) {
     throw new Error(
-      'Expected columns "email", "amcatLink", "lectureTime", "lectureDate" were not found in the sheet header.'
+      'Expected columns "email" and "SHLE Links" (or "amcatLink") were not found in the sheet header.'
     );
   }
 
@@ -139,15 +110,19 @@ async function findStudentByEmail(email) {
     return null;
   }
 
+  const isPresent = isPresentIdx >= 0 ? isPresentValue(row[isPresentIdx]) : false;
+
   return {
     email: targetEmail,
     amcatLink: row[amcatIdx],
-    lectureTime: row[timeIdx],
-    lectureDate: row[dateIdx],
+    lectureTime: timeIdx >= 0 ? row[timeIdx] : '',
+    lectureDate: dateIdx >= 0 ? row[dateIdx] : '',
+    isPresent,
   };
 }
 
-app.post('/api/check-eligibility', async (req, res) => {
+// Sheet-only verification: read sheet, check Present column → redirect or show error. No external API.
+app.post('/api/verify', async (req, res) => {
   const { email } = req.body || {};
 
   if (!email || !normalize(email)) {
@@ -167,42 +142,23 @@ app.post('/api/check-eligibility', async (req, res) => {
       });
     }
 
-    const payload = {
-      email: student.email,
-      amcatLink: student.amcatLink,
-      lectureTime: student.lectureTime,
-      lectureDate: formatDateForApi(student.lectureDate),
-    };
-
-    console.log('Sending payload to analytics API:', payload);
-
-    const apiResponse = await fetch(ANALYTICS_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await apiResponse.json().catch(() => ({}));
-
-    if (apiResponse.ok && (data.url || data.amcatLink)) {
-      const redirectUrl = data.url || data.amcatLink;
-
+    if (student.isPresent && student.amcatLink) {
       return res.status(200).json({
         success: true,
-        url: redirectUrl,
-        message: data.message || 'Verification successful. Redirecting...',
+        url: student.amcatLink,
+        message: 'Verification successful. Redirecting...',
       });
     }
 
-    return res.status(apiResponse.status || 500).json({
+    return res.status(200).json({
       success: false,
-      message: data.message || 'You are not eligible for this test at this time.',
+      message: 'Contact your Campus Manager.',
     });
   } catch (error) {
-    console.error('Eligibility check failed:', error);
+    console.error('Verify failed:', error);
     return res.status(500).json({
       success: false,
-      message: 'Internal server error while checking eligibility. Please contact support.',
+      message: 'Internal server error. Please contact support.',
     });
   }
 });
