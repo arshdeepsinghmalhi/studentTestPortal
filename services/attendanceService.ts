@@ -11,18 +11,20 @@ const base =
 const API_URL = base.replace(/\/$/, '') + '/api/verify';
 
 /**
- * Verifies the student using sheet data only. Backend reads the sheet, checks the Present column:
- * if Present = TRUE and amcat link exists → redirect; else → show "Contact your Campus Manager".
- * @param email The student's email address.
- * @returns A promise that resolves with the verification result.
+ * Verifies the student using sheet data only. Backend uses campus → mapping sheet → campus sheet;
+ * tab Apti/Svar by test type; checks Present column → redirect or "Contact your Campus Manager".
  */
-export const verifyAttendance = async (email: string): Promise<VerificationResult> => {
-  console.log(`Verifying (sheet only) for: ${email}`);
+export const verifyAttendance = async (
+  email: string,
+  campus: string,
+  testType: string
+): Promise<VerificationResult> => {
+  console.log(`Verifying for: ${email}, campus: ${campus}, testType: ${testType}`);
 
-  // The frontend only sends the email. All Google Sheets lookup +
-  // external API logic is handled safely on the backend.
   const requestBody = {
     email: email.trim().toLowerCase(),
+    campus: campus.trim(),
+    testType: testType.trim(),
   };
 
   try {

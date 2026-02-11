@@ -14,10 +14,10 @@ const App: React.FC = () => {
     setAppState('form');
   };
 
-  const handleVerification = useCallback(async (email: string) => {
+  const handleVerification = useCallback(async (email: string, campus: string, testType: string) => {
     setAppState('verifying');
     try {
-      const result = await verifyAttendance(email);
+      const result = await verifyAttendance(email, campus, testType);
       if (result.success && result.url) {
         window.location.href = result.url;
       } else {

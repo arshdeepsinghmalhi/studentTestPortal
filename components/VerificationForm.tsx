@@ -2,10 +2,12 @@
 import React, { useState } from 'react';
 import { SpinnerIcon, XCircleIcon } from './icons';
 
+type TestType = 'AMCAT' | 'SVAR';
+
 interface VerificationFormProps {
   isVerifying: boolean;
   errorMessage: string;
-  onVerify: (email: string) => void;
+  onVerify: (email: string, campus: string, testType: TestType) => void;
   onTryAgain: () => void;
 }
 
@@ -16,6 +18,8 @@ const VerificationForm: React.FC<VerificationFormProps> = ({
   onTryAgain,
 }) => {
   const [email, setEmail] = useState('');
+  const [campus, setCampus] = useState('');
+  const [testType, setTestType] = useState<TestType>('AMCAT');
   const [formError, setFormError] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -26,13 +30,16 @@ const VerificationForm: React.FC<VerificationFormProps> = ({
       setFormError('Email address is required.');
       return;
     }
-    // Basic email format validation
     if (!/\S+@\S+\.\S+/.test(email)) {
       setFormError('Please enter a valid email address.');
       return;
     }
+    if (!campus.trim()) {
+      setFormError('Campus (abbreviation) is required.');
+      return;
+    }
 
-    onVerify(email);
+    onVerify(email, campus.trim(), testType);
   };
 
   if (errorMessage) {
@@ -55,7 +62,7 @@ const VerificationForm: React.FC<VerificationFormProps> = ({
     <div className="bg-white p-8 sm:p-12 rounded-2xl shadow-lg border border-slate-200 animate-fade-in">
       <div className="text-center mb-8">
         <h2 className="text-3xl font-bold text-slate-900">Verify Your Attendance</h2>
-        <p className="text-slate-600 mt-2">Enter your registered email to proceed.</p>
+        <p className="text-slate-600 mt-2">Enter your details to proceed.</p>
       </div>
       <form onSubmit={handleSubmit} noValidate>
         <div className="space-y-6">
@@ -73,6 +80,36 @@ const VerificationForm: React.FC<VerificationFormProps> = ({
               className="block w-full px-4 py-3 border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-150 ease-in-out disabled:bg-slate-100"
               required
             />
+          </div>
+          <div>
+            <label htmlFor="campus" className="block text-sm font-medium text-slate-700 mb-1">
+              Campus (abbreviation)
+            </label>
+            <input
+              type="text"
+              id="campus"
+              value={campus}
+              onChange={(e) => setCampus(e.target.value)}
+              disabled={isVerifying}
+              placeholder="e.g. ITM"
+              className="block w-full px-4 py-3 border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-150 ease-in-out disabled:bg-slate-100"
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="testType" className="block text-sm font-medium text-slate-700 mb-1">
+              Test Type
+            </label>
+            <select
+              id="testType"
+              value={testType}
+              onChange={(e) => setTestType(e.target.value as TestType)}
+              disabled={isVerifying}
+              className="block w-full px-4 py-3 border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-150 ease-in-out disabled:bg-slate-100"
+            >
+              <option value="AMCAT">AMCAT</option>
+              <option value="SVAR">SVAR</option>
+            </select>
           </div>
         </div>
         

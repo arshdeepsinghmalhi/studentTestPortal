@@ -16,7 +16,10 @@ function crashAndExit(err) {
 process.on('uncaughtException', crashAndExit);
 process.on('unhandledRejection', crashAndExit);
 
-// Backend: reads sheet only. Lookup by email, check Present column → if TRUE redirect to amcat link, else "Contact your Campus Manager". No /api/check-eligibility, no external API.
+// Backend: mapping sheet (campus → sheet ID), then campus sheet + tab (Apti/Svar) by test type; lookup by email, Present column → redirect or "Contact your Campus Manager".
+// Mapping sheet ID (not secret) – Mapping tab has CAMPUS and Sheet ID.
+const MAPPING_SHEET_ID = '1ZM22n9C3BE_pIUwkvhEAgbz-9mvU6JM5dKAGThmZiUE';
+const TEST_TYPE_TO_TAB = { amcat: 'Apti', svar: 'Svar' };
 
 const app = express();
 app.use(express.json());
@@ -64,54 +67,49 @@ function isPresentValue(value) {
   return v === 'true' || v === 'yes' || v === '1' || v === 'x' || v === 'y';
 }
 
-async function findStudentByEmail(email) {
-  const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
-  const range = process.env.GOOGLE_SHEETS_RANGE || 'userDetails!A:Z';
-
-  if (!spreadsheetId) {
-    throw new Error('GOOGLE_SHEETS_ID is not set. Please configure it in your environment.');
-  }
-
+/** Get spreadsheet ID for campus from Mapping sheet (Mapping tab: CAMPUS, Sheet ID). */
+async function getSheetIdForCampus(campus) {
   const client = await auth.getClient();
   const sheets = google.sheets({ version: 'v4', auth: client });
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: MAPPING_SHEET_ID,
+    range: 'Mapping!A:Z',
+  });
+  const rows = response.data.values || [];
+  if (!rows.length) return null;
+  const [headerRow, ...dataRows] = rows;
+  const headerIndex = (names) => headerRow.findIndex((h) => names.includes(normalize(h)));
+  const campusIdx = headerIndex(['campus']);
+  const sheetIdIdx = headerIndex(['sheet id', 'sheet_id']);
+  if (campusIdx === -1 || sheetIdIdx === -1) return null;
+  const targetCampus = normalize(campus);
+  const row = dataRows.find((r) => normalize(r[campusIdx]) === targetCampus);
+  return row && row[sheetIdIdx] ? String(row[sheetIdIdx]).trim() : null;
+}
 
+/** Find student in given spreadsheet and tab (e.g. Apti or Svar); check Present, return link. */
+async function findStudentByEmail(email, spreadsheetId, tabName) {
+  const range = `${tabName}!A:Z`;
+  const client = await auth.getClient();
+  const sheets = google.sheets({ version: 'v4', auth: client });
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range,
   });
-
   const rows = response.data.values || [];
-  if (!rows.length) {
-    return null;
-  }
-
+  if (!rows.length) return null;
   const [headerRow, ...dataRows] = rows;
-
-  const headerIndex = (names) =>
-    headerRow.findIndex((h) => names.includes(normalize(h)));
-
-  // Sheet headers: ..., Email, ..., SHLE Links, ..., is_present / Present (normalize() lowercases)
+  const headerIndex = (names) => headerRow.findIndex((h) => names.includes(normalize(h)));
   const emailIdx = headerIndex(['email']);
   const amcatIdx = headerIndex(['shle links']);
   const timeIdx = headerIndex(['lecture start time']);
   const dateIdx = headerIndex(['lecture date']);
   const isPresentIdx = headerIndex(['is_present', 'is present', 'is_presnet', 'present']);
-
-  if (emailIdx === -1 || amcatIdx === -1) {
-    throw new Error(
-      'Expected columns "email" and "SHLE Links" (or "amcatLink") were not found in the sheet header.'
-    );
-  }
-
+  if (emailIdx === -1 || amcatIdx === -1) return null;
   const targetEmail = normalize(email);
-
   const row = dataRows.find((r) => normalize(r[emailIdx]) === targetEmail);
-  if (!row) {
-    return null;
-  }
-
+  if (!row) return null;
   const isPresent = isPresentIdx >= 0 ? isPresentValue(row[isPresentIdx]) : false;
-
   return {
     email: targetEmail,
     amcatLink: row[amcatIdx],
@@ -121,20 +119,35 @@ async function findStudentByEmail(email) {
   };
 }
 
-// Sheet-only verification: read sheet, check Present column → redirect or show error. No external API.
+// Verify: mapping sheet (campus → sheet ID), then campus sheet tab (Apti/Svar) by test type; lookup email, Present → redirect or error.
 app.post('/api/verify', async (req, res) => {
-  const { email } = req.body || {};
+  const { email, campus, testType } = req.body || {};
 
   if (!email || !normalize(email)) {
+    return res.status(400).json({ success: false, message: 'Email is required.' });
+  }
+  if (!campus || !normalize(campus)) {
+    return res.status(400).json({ success: false, message: 'Campus (abbreviation) is required.' });
+  }
+  const testNorm = normalize(testType);
+  const tabName = TEST_TYPE_TO_TAB[testNorm];
+  if (!tabName) {
     return res.status(400).json({
       success: false,
-      message: 'Email is required.',
+      message: 'Test type must be AMCAT or SVAR.',
     });
   }
 
   try {
-    const student = await findStudentByEmail(email);
+    const sheetId = await getSheetIdForCampus(campus);
+    if (!sheetId) {
+      return res.status(404).json({
+        success: false,
+        message: 'Campus not found. Please check the campus abbreviation.',
+      });
+    }
 
+    const student = await findStudentByEmail(email, sheetId, tabName);
     if (!student) {
       return res.status(404).json({
         success: false,
@@ -156,9 +169,14 @@ app.post('/api/verify', async (req, res) => {
     });
   } catch (error) {
     console.error('Verify failed:', error);
-    return res.status(500).json({
+    const status = error?.response?.status || error?.code;
+    const isForbidden = status === 403 || (error?.errors?.[0]?.reason === 'forbidden');
+    const message = isForbidden
+      ? 'Cannot access mapping or campus sheet. Please ensure the mapping spreadsheet and campus spreadsheets are shared with the service account (Viewer access).'
+      : 'Internal server error. Please contact support.';
+    return res.status(isForbidden ? 503 : 500).json({
       success: false,
-      message: 'Internal server error. Please contact support.',
+      message,
     });
   }
 });
