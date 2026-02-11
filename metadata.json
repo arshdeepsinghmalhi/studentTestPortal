@@ -1,0 +1,5 @@
+{
+  "name": "Student Test Portal",
+  "description": "A web application for students to verify their attendance and access their test link. Students enter their email and mobile number to check their attendance status and get redirected to their specific test URL.",
+  "requestFramePermissions": []
+}
