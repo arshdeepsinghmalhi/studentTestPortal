@@ -3,12 +3,18 @@ import { VerificationResult } from '../types';
 
 // Backend API: VITE_API_URL in prod, or fallback to Render when on Vercel, else /api for local dev (Vite proxy).
 const RENDER_API_BASE = 'https://student-test-portal-api.onrender.com';
-const base =
+// Normalize wrong/old Render host to the correct one (avoids CORS when VITE_API_URL was set to studenttestportal.onrender.com).
+const rawBase =
   import.meta.env.VITE_API_URL ||
   (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')
     ? RENDER_API_BASE
     : '');
-const API_URL = base.replace(/\/$/, '') + '/api/verify';
+const base = rawBase.replace(/\/$/, '');
+const normalizedBase =
+  !base || base.startsWith('https://studenttestportal.onrender.com')
+    ? (base ? RENDER_API_BASE : base)
+    : base;
+const API_URL = (normalizedBase ? normalizedBase.replace(/\/$/, '') + '/api/verify' : '/api/verify');
 
 /**
  * Verifies the student using sheet data only. Backend uses campus → mapping sheet → campus sheet;
