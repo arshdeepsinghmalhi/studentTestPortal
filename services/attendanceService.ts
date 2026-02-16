@@ -17,20 +17,18 @@ const normalizedBase =
 const API_URL = (normalizedBase ? normalizedBase.replace(/\/$/, '') + '/api/verify' : '/api/verify');
 
 /**
- * Verifies the student using sheet data only. Backend uses campus → mapping sheet → campus sheet;
- * tab Apti/Svar by test type; checks Present column → redirect or "Contact your Campus Manager".
+ * Verifies the student using sheet data only. Backend uses campus → mapping sheet → campus sheet
+ * Apti tab (Aptitude); checks Present column → redirect or error.
  */
 export const verifyAttendance = async (
   email: string,
-  campus: string,
-  testType: string
+  campus: string
 ): Promise<VerificationResult> => {
-  console.log(`Verifying for: ${email}, campus: ${campus}, testType: ${testType}`);
+  console.log(`Verifying for: ${email}, campus: ${campus} (Apti)`);
 
   const requestBody = {
     email: email.trim().toLowerCase(),
     campus: campus.trim(),
-    testType: testType.trim(),
   };
 
   try {
@@ -59,20 +57,20 @@ export const verifyAttendance = async (
       console.error('Eligibility check successful, but the API response did not contain a redirect URL.');
       return {
         success: false,
-        message: 'Eligibility confirmed, but the test link is missing. Please contact your instructor.',
+        message: 'You are marked present, but the test link is not available yet. Please contact your campus manager or instructor.',
       };
     }
 
     console.log('Student is not eligible or backend reported failure:', data.message || 'No specific reason provided.');
     return {
       success: false,
-      message: data.message || 'You are not eligible for this test at this time.',
+      message: data.message || 'We could not complete verification. Please check the message above or try again.',
     };
   } catch (error) {
     console.error('API call failed:', error);
     return {
       success: false,
-      message: 'A network error occurred. Please check your connection and try again.',
+      message: 'We could not reach the server. Please check your internet connection and try again.',
     };
   }
 };

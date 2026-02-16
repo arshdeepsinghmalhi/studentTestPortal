@@ -16,10 +16,10 @@ function crashAndExit(err) {
 process.on('uncaughtException', crashAndExit);
 process.on('unhandledRejection', crashAndExit);
 
-// Backend: mapping sheet (campus → sheet ID), then campus sheet + tab (Apti/Svar) by test type; lookup by email, Present column → redirect or "Contact your Campus Manager".
+// Backend: mapping sheet (campus → sheet ID), then campus sheet Apti tab; lookup by email, Present column → redirect or error.
 // Mapping sheet ID (not secret) – Mapping tab has CAMPUS and Sheet ID.
 const MAPPING_SHEET_ID = '1ZM22n9C3BE_pIUwkvhEAgbz-9mvU6JM5dKAGThmZiUE';
-const TEST_TYPE_TO_TAB = { amcat: 'Apti', svar: 'Svar' };
+const DEFAULT_TAB = 'Apti';
 
 const app = express();
 app.use(express.json());
@@ -87,7 +87,7 @@ async function getSheetIdForCampus(campus) {
   return row && row[sheetIdIdx] ? String(row[sheetIdIdx]).trim() : null;
 }
 
-/** Find student in given spreadsheet and tab (e.g. Apti or Svar); check Present, return link. */
+/** Find student in given spreadsheet and tab (Apti); check Present, return link. */
 async function findStudentByEmail(email, spreadsheetId, tabName) {
   const range = `${tabName}!A:Z`;
   const client = await auth.getClient();
@@ -119,23 +119,15 @@ async function findStudentByEmail(email, spreadsheetId, tabName) {
   };
 }
 
-// Verify: mapping sheet (campus → sheet ID), then campus sheet tab (Apti/Svar) by test type; lookup email, Present → redirect or error.
+// Verify: mapping sheet (campus → sheet ID), then campus sheet Apti tab; lookup email, Present → redirect or error.
 app.post('/api/verify', async (req, res) => {
-  const { email, campus, testType } = req.body || {};
+  const { email, campus } = req.body || {};
 
   if (!email || !normalize(email)) {
-    return res.status(400).json({ success: false, message: 'Email is required.' });
+    return res.status(400).json({ success: false, message: 'Please enter your email address.' });
   }
   if (!campus || !normalize(campus)) {
-    return res.status(400).json({ success: false, message: 'Campus (abbreviation) is required.' });
-  }
-  const testNorm = normalize(testType);
-  const tabName = TEST_TYPE_TO_TAB[testNorm];
-  if (!tabName) {
-    return res.status(400).json({
-      success: false,
-      message: 'Test type must be AMCAT or SVAR.',
-    });
+    return res.status(400).json({ success: false, message: 'Please select or enter your campus.' });
   }
 
   try {
@@ -143,15 +135,15 @@ app.post('/api/verify', async (req, res) => {
     if (!sheetId) {
       return res.status(404).json({
         success: false,
-        message: 'Campus not found. Please check the campus abbreviation.',
+        message: 'This campus was not found. Please check the campus name and try again.',
       });
     }
 
-    const student = await findStudentByEmail(email, sheetId, tabName);
+    const student = await findStudentByEmail(email, sheetId, DEFAULT_TAB);
     if (!student) {
       return res.status(404).json({
         success: false,
-        message: 'Email not found in the registration list. Please check your registered email.',
+        message: 'Your email is not in the list. Please recheck your email and try again.',
       });
     }
 
@@ -165,15 +157,15 @@ app.post('/api/verify', async (req, res) => {
 
     return res.status(200).json({
       success: false,
-      message: 'Contact your Campus Manager.',
+      message: 'You are not marked present yet. Please ask your exam coordinator to mark you present, then try again.',
     });
   } catch (error) {
     console.error('Verify failed:', error);
     const status = error?.response?.status || error?.code;
     const isForbidden = status === 403 || (error?.errors?.[0]?.reason === 'forbidden');
     const message = isForbidden
-      ? 'Cannot access mapping or campus sheet. Please ensure the mapping spreadsheet and campus spreadsheets are shared with the service account (Viewer access).'
-      : 'Internal server error. Please contact support.';
+      ? 'Attendance sheet is not available right now. Please contact your administrator to update or fix the sheet and try again later.'
+      : 'Something went wrong on our end. Please try again in a few minutes or contact support if it continues.';
     return res.status(isForbidden ? 503 : 500).json({
       success: false,
       message,

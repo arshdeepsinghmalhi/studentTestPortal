@@ -14,10 +14,10 @@ const App: React.FC = () => {
     setAppState('form');
   };
 
-  const handleVerification = useCallback(async (email: string, campus: string, testType: string) => {
+  const handleVerification = useCallback(async (email: string, campus: string) => {
     setAppState('verifying');
     try {
-      const result = await verifyAttendance(email, campus, testType);
+      const result = await verifyAttendance(email, campus);
       if (result.success && result.url) {
         window.location.href = result.url;
       } else {
@@ -57,13 +57,19 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col items-center justify-center p-4 font-sans">
-       <header className="absolute top-0 left-0 p-6">
-          <h1 className="text-2xl font-bold text-blue-600">SUNSTONE PRIME</h1>
-       </header>
-       <main className="w-full max-w-2xl">
-         {renderContent()}
-       </main>
+    <div className="app-shell">
+      <header className="app-header">
+        <img
+          src="/sunstone-logo.png"
+          alt="Sunstone eDuvarsity"
+          className="app-header-logo"
+        />
+      </header>
+      <main className="main-content">
+        <div className="main-content-inner">
+          {renderContent()}
+        </div>
+      </main>
     </div>
   );
 };
