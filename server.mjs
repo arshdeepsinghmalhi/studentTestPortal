@@ -89,6 +89,7 @@ async function getSheetIdForCampus(campus) {
 
 /** Find student in given spreadsheet and tab (Apti); check Present, return link. */
 async function findStudentByEmail(email, spreadsheetId, tabName) {
+  console.log('Finding student by email:', email, spreadsheetId, tabName);
   const range = `${tabName}!A:Z`;
   const client = await auth.getClient();
   const sheets = google.sheets({ version: 'v4', auth: client });
@@ -102,10 +103,18 @@ async function findStudentByEmail(email, spreadsheetId, tabName) {
   const headerIndex = (names) => headerRow.findIndex((h) => names.includes(normalize(h)));
   const emailIdx = headerIndex(['email']);
   const amcatIdx = headerIndex(['shle links']);
-  const timeIdx = headerIndex(['lecture start time']);
-  const dateIdx = headerIndex(['lecture date']);
   const isPresentIdx = headerIndex(['is_present', 'is present', 'is_presnet', 'present']);
-  if (emailIdx === -1 || amcatIdx === -1) return null;
+  // Validate that all required headers exist; if any are missing, throw a descriptive error.
+  const missingHeaders = [];
+  if (emailIdx === -1) missingHeaders.push('"email"');
+  if (amcatIdx === -1) missingHeaders.push('"shle links"');
+  if (isPresentIdx === -1) missingHeaders.push('"is_present"/"is present"/"is_presnet"/"present"');
+  if (missingHeaders.length > 0) {
+    const error = new Error(`Missing required column header(s) in sheet: ${missingHeaders.join(', ')}`);
+    error.code = 'MISSING_HEADERS';
+    error.missingHeaders = missingHeaders;
+    throw error;
+  }
   const targetEmail = normalize(email);
   const row = dataRows.find((r) => normalize(r[emailIdx]) === targetEmail);
   if (!row) return null;
@@ -113,8 +122,6 @@ async function findStudentByEmail(email, spreadsheetId, tabName) {
   return {
     email: targetEmail,
     amcatLink: row[amcatIdx],
-    lectureTime: timeIdx >= 0 ? row[timeIdx] : '',
-    lectureDate: dateIdx >= 0 ? row[dateIdx] : '',
     isPresent,
   };
 }
@@ -161,6 +168,16 @@ app.post('/api/verify', async (req, res) => {
     });
   } catch (error) {
     console.error('Verify failed:', error);
+    // If the sheet is missing one or more required headers, return a clear, specific error.
+    if (error?.code === 'MISSING_HEADERS') {
+      const missing = Array.isArray(error.missingHeaders) && error.missingHeaders.length
+        ? error.missingHeaders.join(', ')
+        : 'one or more required columns';
+      return res.status(503).json({
+        success: false,
+        message: `Attendance sheet is misconfigured and is missing the following column header(s): ${missing}. Please contact your administrator to update the sheet and try again.`,
+      });
+    }
     const status = error?.response?.status || error?.code;
     const isForbidden = status === 403 || (error?.errors?.[0]?.reason === 'forbidden');
     const message = isForbidden
