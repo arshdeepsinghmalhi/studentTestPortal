@@ -20,8 +20,10 @@ process.on('unhandledRejection', crashAndExit);
 // Mapping sheet ID (not secret) – Mapping tab has CAMPUS and Sheet ID.
 const MAPPING_SHEET_ID = '1ZM22n9C3BE_pIUwkvhEAgbz-9mvU6JM5dKAGThmZiUE';
 const DEFAULT_TAB = 'Apti';
-const LOG_SHEET_ID = '10MCJPZ5BaCiemMN_CFfxG7Zt4DaS6_jlcv7rRZgjyq0';
-const LOG_TAB = 'Sheet1';
+// Logs are written to a "Logs" tab inside each campus's own data sheet (the
+// spreadsheet resolved from the Mapping tab). No separate log spreadsheet.
+const LOG_TAB = 'Logs';
+const LOG_HEADER = ['Timestamp', 'Email', 'Campus', 'Browser', 'Is SEB', 'Outcome', 'User Agent'];
 
 const app = express();
 app.use(express.json());
@@ -80,34 +82,65 @@ function detectBrowser(userAgent) {
   return 'Other';
 }
 
-/** Append a browser log row to the log sheet. Fails silently so it never blocks verify. */
-async function logBrowserAccess({ email, campus, userAgent, outcome }) {
+/** Ensure a "Logs" tab exists in the given spreadsheet, with a header row. */
+async function ensureLogsTab(sheets, spreadsheetId) {
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties(title)',
+  });
+  const titles = (meta.data.sheets || []).map((s) => s.properties.title);
+
+  if (!titles.includes(LOG_TAB)) {
+    // Tab missing → create it, then write the header row.
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title: LOG_TAB } } }] },
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${LOG_TAB}!A1`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [LOG_HEADER] },
+    });
+    return;
+  }
+
+  // Tab exists → add header only if it's currently empty.
+  const existing = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${LOG_TAB}!A1`,
+  });
+  if (!existing.data.values) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${LOG_TAB}!A1`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [LOG_HEADER] },
+    });
+  }
+}
+
+/**
+ * Append a browser log row to the "Logs" tab of the campus's own data sheet.
+ * Creates the tab if needed. Fails silently so it never blocks verify.
+ */
+async function logBrowserAccess({ email, campus, userAgent, outcome, spreadsheetId }) {
   try {
-    console.log('logBrowserAccess called:', email, campus, outcome);
+    if (!spreadsheetId) {
+      console.warn('logBrowserAccess: no spreadsheetId provided, skipping log.');
+      return;
+    }
+    console.log('logBrowserAccess called:', email, campus, outcome, '->', spreadsheetId);
     const client = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: client });
 
-    // Add header row if sheet is empty
-    const existing = await sheets.spreadsheets.values.get({
-      spreadsheetId: LOG_SHEET_ID,
-      range: `${LOG_TAB}!A1`,
-    });
-    if (!existing.data.values) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: LOG_SHEET_ID,
-        range: `${LOG_TAB}!A1`,
-        valueInputOption: 'RAW',
-        requestBody: {
-          values: [['Timestamp', 'Email', 'Campus', 'Browser', 'Is SEB', 'Outcome', 'User Agent']],
-        },
-      });
-    }
+    await ensureLogsTab(sheets, spreadsheetId);
 
     const browser = detectBrowser(userAgent);
     const isSEB = browser === 'Safe Exam Browser' ? 'Yes' : 'No';
     const timestamp = new Date().toISOString();
     await sheets.spreadsheets.values.append({
-      spreadsheetId: LOG_SHEET_ID,
+      spreadsheetId,
       range: `${LOG_TAB}!A:G`,
       valueInputOption: 'RAW',
       requestBody: {
@@ -208,7 +241,7 @@ app.post('/api/verify', async (req, res) => {
     }
 
     if (student.isPresent && student.amcatLink) {
-      logBrowserAccess({ email, campus, userAgent, outcome: 'success' });
+      logBrowserAccess({ email, campus, userAgent, outcome: 'success', spreadsheetId: sheetId });
       return res.status(200).json({
         success: true,
         url: student.amcatLink,
@@ -216,7 +249,7 @@ app.post('/api/verify', async (req, res) => {
       });
     }
 
-    logBrowserAccess({ email, campus, userAgent, outcome: 'not_present' });
+    logBrowserAccess({ email, campus, userAgent, outcome: 'not_present', spreadsheetId: sheetId });
     return res.status(200).json({
       success: false,
       message: 'You are not marked present yet. Please ask your exam coordinator to mark you present, then try again.',
