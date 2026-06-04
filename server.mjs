@@ -83,6 +83,7 @@ function detectBrowser(userAgent) {
 /** Append a browser log row to the log sheet. Fails silently so it never blocks verify. */
 async function logBrowserAccess({ email, campus, userAgent, outcome }) {
   try {
+    console.log('logBrowserAccess called:', email, campus, outcome);
     const client = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: client });
 
@@ -113,8 +114,9 @@ async function logBrowserAccess({ email, campus, userAgent, outcome }) {
         values: [[timestamp, email, campus, browser, isSEB, outcome, userAgent]],
       },
     });
+    console.log('logBrowserAccess success');
   } catch (err) {
-    console.error('Browser log failed (non-fatal):', err.message);
+    console.error('Browser log failed (non-fatal):', err.message, err.response?.data);
   }
 }
 
