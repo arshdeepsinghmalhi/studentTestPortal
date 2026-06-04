@@ -20,6 +20,8 @@ process.on('unhandledRejection', crashAndExit);
 // Mapping sheet ID (not secret) – Mapping tab has CAMPUS and Sheet ID.
 const MAPPING_SHEET_ID = '1ZM22n9C3BE_pIUwkvhEAgbz-9mvU6JM5dKAGThmZiUE';
 const DEFAULT_TAB = 'Apti';
+const LOG_SHEET_ID = '10MCJPZ5BaCiemMN_CFfxG7Zt4DaS6_jlcv7rRZgjyq0';
+const LOG_TAB = 'Sheet1';
 
 const app = express();
 app.use(express.json());
@@ -36,7 +38,7 @@ app.use((req, res, next) => {
 });
 
 // Google Sheets auth: use service account from env (private key + client email) or from file.
-const SHEETS_SCOPE = ['https://www.googleapis.com/auth/spreadsheets.readonly'];
+const SHEETS_SCOPE = ['https://www.googleapis.com/auth/spreadsheets'];
 
 function getGoogleAuth() {
   const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
@@ -65,6 +67,55 @@ const normalize = (value) => (value ?? '').toString().trim().toLowerCase();
 function isPresentValue(value) {
   const v = normalize(value);
   return v === 'true' || v === 'yes' || v === '1' || v === 'x' || v === 'y';
+}
+
+function detectBrowser(userAgent) {
+  if (!userAgent) return 'Unknown';
+  if (/SEB|SafeExamBrowser/i.test(userAgent)) return 'Safe Exam Browser';
+  if (/Edg\//i.test(userAgent)) return 'Edge';
+  if (/OPR\//i.test(userAgent)) return 'Opera';
+  if (/Chrome\//i.test(userAgent)) return 'Chrome';
+  if (/Firefox\//i.test(userAgent)) return 'Firefox';
+  if (/Safari\//i.test(userAgent)) return 'Safari';
+  return 'Other';
+}
+
+/** Append a browser log row to the log sheet. Fails silently so it never blocks verify. */
+async function logBrowserAccess({ email, campus, userAgent, outcome }) {
+  try {
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+
+    // Add header row if sheet is empty
+    const existing = await sheets.spreadsheets.values.get({
+      spreadsheetId: LOG_SHEET_ID,
+      range: `${LOG_TAB}!A1`,
+    });
+    if (!existing.data.values) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: LOG_SHEET_ID,
+        range: `${LOG_TAB}!A1`,
+        valueInputOption: 'RAW',
+        requestBody: {
+          values: [['Timestamp', 'Email', 'Campus', 'Browser', 'Is SEB', 'Outcome', 'User Agent']],
+        },
+      });
+    }
+
+    const browser = detectBrowser(userAgent);
+    const isSEB = browser === 'Safe Exam Browser' ? 'Yes' : 'No';
+    const timestamp = new Date().toISOString();
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: LOG_SHEET_ID,
+      range: `${LOG_TAB}!A:G`,
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [[timestamp, email, campus, browser, isSEB, outcome, userAgent]],
+      },
+    });
+  } catch (err) {
+    console.error('Browser log failed (non-fatal):', err.message);
+  }
 }
 
 /** Get spreadsheet ID for campus from Mapping sheet (Mapping tab: CAMPUS, Sheet ID). */
@@ -128,7 +179,7 @@ async function findStudentByEmail(email, spreadsheetId, tabName) {
 
 // Verify: mapping sheet (campus → sheet ID), then campus sheet Apti tab; lookup email, Present → redirect or error.
 app.post('/api/verify', async (req, res) => {
-  const { email, campus } = req.body || {};
+  const { email, campus, userAgent } = req.body || {};
 
   if (!email || !normalize(email)) {
     return res.status(400).json({ success: false, message: 'Please enter your email address.' });
@@ -155,6 +206,7 @@ app.post('/api/verify', async (req, res) => {
     }
 
     if (student.isPresent && student.amcatLink) {
+      logBrowserAccess({ email, campus, userAgent, outcome: 'success' });
       return res.status(200).json({
         success: true,
         url: student.amcatLink,
@@ -162,6 +214,7 @@ app.post('/api/verify', async (req, res) => {
       });
     }
 
+    logBrowserAccess({ email, campus, userAgent, outcome: 'not_present' });
     return res.status(200).json({
       success: false,
       message: 'You are not marked present yet. Please ask your exam coordinator to mark you present, then try again.',
@@ -190,7 +243,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 app.listen(PORT, () => {
   console.log(`Eligibility backend listening on http://localhost:${PORT}`);

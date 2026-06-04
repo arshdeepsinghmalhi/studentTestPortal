@@ -29,6 +29,7 @@ export const verifyAttendance = async (
   const requestBody = {
     email: email.trim().toLowerCase(),
     campus: campus.trim(),
+    userAgent: navigator.userAgent,
   };
 
   try {
